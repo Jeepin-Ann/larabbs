@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use App\Http\Requests\Api\AuthorizationRequest;
 use App\Http\Requests\Api\SocialAuthorizationRequest;
 
 class AuthorizationsController extends Controller
 {
+    //第三方登录
     public function socialStore(SocialAuthorizationRequest $request, $type){
         //如果在type中没有‘weixin’，‘weibo’，‘QQ’这样的类型。没有返回错误请求的响应，就是说不支持weixin
         if (!in_array($type,['weixin'])){
@@ -60,6 +63,45 @@ class AuthorizationsController extends Controller
             }
             break;
         }
-        return $this->response->array(['token' => $user->id]);
+        $token = Auth::guard('api')->fromUser($user);
+        return $this->respondWithToken($token)->setStatusCode(201);
+    }
+
+    //登录
+    public function store(AuthorizationRequest $request)
+    {
+        $username = $request->username;
+
+        filter_var($username, FILTER_VALIDATE_EMAIL) ?
+            $credentials['email'] = $username :
+            $credentials['phone'] = $username;
+        $credentials['password'] = $request->password;
+
+        if(!$token = Auth::guard('api')->attempt($credentials)){
+            return $this->response->errorUnauthorized('用户名或密码错误');
+        }
+        return $this->respondWithToken($token)->setStatusCode(201);
+
+    }
+
+    protected function respondWithToken($token)
+    {
+        return $this->response->array([
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+            'expires_in' => Auth::guard('api')->factory()->getTTL() * 60
+        ]);
+    }
+    //刷新token
+    public function update()
+    {
+        $token = Auth::guard('api')->refresh();
+        return $this->respondWithToken($token);
+    }
+    //删除token
+    public function destroy()
+    {
+        $token = Auth::guard('api')->logout();
+        return $this->response()->noContent();
     }
 }
